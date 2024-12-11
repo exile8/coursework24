@@ -15,6 +15,8 @@ def load_audio(filename, sampling_rate=None):
 
     if sampling_rate is not None and sr_source != sampling_rate:
         audio = F.resample(audio, sr_source, sampling_rate)
+        if audio.abs().max() > 1.:
+            audio /= audio.abs().max()
 
     return audio
 
