@@ -46,5 +46,6 @@ class ESC50dataset(BaseAudioDataset):
 
         # rename columns
         metadata = meta.rename(columns={"filename": "path_to_audio"})
+        metadata = metadata.reset_index(drop=True)
 
         return metadata
