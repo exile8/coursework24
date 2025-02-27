@@ -27,7 +27,7 @@ class BaseAudioDataset(Dataset, ABC):
         if sr is not None and duration is not None:
             self.num_frames = int(sr * duration)
         else:
-            self.num_frames = -1
+            self.num_frames = None
         self.normalize = normalize
         self.feature_extractor = feature_extractor
         self.time_augs = time_augs
@@ -39,12 +39,13 @@ class BaseAudioDataset(Dataset, ABC):
         """Loads data from corresponding metafile and converts it to format path_to_audio, target"""
         pass
 
-    def _fix_length(self, audio, num_frames_orig):
-        if audio.shape[1] < num_frames_orig:
-            pad_frames = num_frames_orig - audio.shape[1]
-            return torch.nn.functional.pad(audio, (0, pad_frames))
-        elif audio.shape[1] > num_frames_orig:
-            return audio[..., :num_frames_orig]
+    def _fix_length(self, audio):
+        if self.num_frames is not None:
+            if audio.shape[1] < self.num_frames:
+                pad_frames = self.num_frames - audio.shape[1]
+                return torch.nn.functional.pad(audio, (0, pad_frames))
+            elif audio.shape[1] > self.num_frames:
+                return audio[..., :self.num_frames]
         return audio
             
 
@@ -55,7 +56,7 @@ class BaseAudioDataset(Dataset, ABC):
         audio_path = self.metadata.loc[idx, "path_to_audio"]
         target = torch.tensor(self.metadata.loc[idx, "target"], dtype=torch.long)
 
-        audio, original_sr = torchaudio.load(audio_path, num_frames=self.num_frames)
+        audio, original_sr = torchaudio.load(audio_path)
 
         # convert to mono if necessary
         if audio.shape[0] > 1:
@@ -71,12 +72,10 @@ class BaseAudioDataset(Dataset, ABC):
             if abs_max != 0.:
                 audio /= abs_max
 
-        _, num_frames_orig = audio.shape
-
         if self.time_augs is not None:
             audio = self.time_augs(audio)
 
-        audio = self._fix_length(audio, num_frames_orig)
+        audio = self._fix_length(audio)
 
         if self.feature_extractor is not None:
             features = self.feature_extractor(audio)
