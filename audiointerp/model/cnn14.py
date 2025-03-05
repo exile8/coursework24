@@ -124,16 +124,24 @@ class Cnn14(nn.Module):
     
 
 class TransferCnn14(nn.Module):
-    def __init__(self, embedder, num_classes):
+    def __init__(self, num_classes):
 
         super(TransferCnn14, self).__init__()
         
-        self.base = embedder()
+        self.base = Cnn14()
         emb_dim = self.base.fc1.out_features
         self.classifier = nn.Linear(in_features=emb_dim, out_features=num_classes)
 
-    def load_base_weights(self, path_to_weights):
-        # TODO: default path, download option
+    def load_base_weights(self, path_to_weights=None):
+        if path_to_weights is None:
+            import os
+            
+            if not os.path.isdir("weights"):
+                os.makedirs("weights")
+
+            os.system("wget https://zenodo.org/records/3987831/files/Cnn14_mAP=0.431.pth -P weights")
+            path_to_weights = os.path.join("weights", "Cnn14_mAP=0.431.pth")
+
         weights_full = torch.load(path_to_weights)["model"]
 
         weights = OrderedDict()
