@@ -9,7 +9,7 @@ class Saliency(BaseInterpretation):
 
         self.saliency = Saliency_captum(model)
 
-    def interpret(self, inputs):
+    def compute_interpretation(self, inputs):
         
         inputs = inputs.to(self.device).requires_grad_(True)
         logits = self.model(inputs)

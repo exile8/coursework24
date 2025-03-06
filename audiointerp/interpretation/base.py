@@ -1,4 +1,5 @@
 from abc import ABC, abstractmethod
+import torch.nn.functional as F
 
 
 class BaseInterpretation(ABC):
@@ -8,9 +9,31 @@ class BaseInterpretation(ABC):
         self.model.eval()
         self.device = next(model.parameters()).device
 
+
     @abstractmethod
-    def interpret(self, inputs, **kwargs):
+    def compute_interpretation(self, inputs, **kwargs):
         """Apply interpretation method to given samples"""
         pass
 
 
+    def create_masks(self, attributions):
+        """Mask intepretation"""
+        masks = F.sigmoid(attributions)
+        return masks
+    
+
+    def interpret(self, inputs, **kwargs):
+        """Interpret given samples.
+        Return interpretations with corresponding masks.
+        Results are stored as a dict {"ints": ..., "masks": ...}
+        """
+
+        interpretations = self.compute_interpretation(inputs, **kwargs)
+        masks = self.create_masks(interpretations)
+
+        result = {
+            "ints": interpretations,
+            "masks": masks
+        }
+
+        return result
