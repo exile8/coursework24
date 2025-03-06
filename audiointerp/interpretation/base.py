@@ -2,7 +2,7 @@ from abc import ABC, abstractmethod
 import torch.nn.functional as F
 
 
-class BaseInterpretation(ABC):
+class BaseInterpreter(ABC):
 
     def __init__(self, model):
         self.model = model

@@ -1,8 +1,8 @@
-from .base import BaseInterpretation
+from .base import BaseInterpreter
 from captum.attr import Saliency as Saliency_captum
 
 
-class Saliency(BaseInterpretation):
+class SaliencyInterpreter(BaseInterpreter):
 
     def __init__(self, model):
         super().__init__(model)
