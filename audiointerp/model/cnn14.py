@@ -53,8 +53,8 @@ class ConvBlock(nn.Module):
     def forward(self, input, pool_size=(2, 2), pool_type='avg'):
         
         x = input
-        x = F.relu_(self.bn1(self.conv1(x)))
-        x = F.relu_(self.bn2(self.conv2(x)))
+        x = F.relu(self.bn1(self.conv1(x)))
+        x = F.relu(self.bn2(self.conv2(x)))
         if pool_type == 'max':
             x = F.max_pool2d(x, kernel_size=pool_size)
         elif pool_type == 'avg':
@@ -117,7 +117,7 @@ class Cnn14(nn.Module):
         x2 = torch.mean(x, dim=2)
         x = x1 + x2
         x = F.dropout(x, p=0.5, training=self.training)
-        x = F.relu_(self.fc1(x))
+        x = F.relu(self.fc1(x))
         embedding = F.dropout(x, p=0.5, training=self.training)
 
         return embedding
