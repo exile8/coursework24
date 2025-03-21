@@ -12,7 +12,7 @@ class BaseProcessor(torch.nn.Module, ABC):
         pass
 
     @abstractmethod
-    def inverse(self, features, phase=None):
+    def inverse(self, features, **kwargs):
         pass
 
     def extract_phase(self, stft_complex):
