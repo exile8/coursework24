@@ -2,6 +2,7 @@ import random
 import numpy as np
 from tqdm import tqdm
 import torch
+from torch.utils.data import DataLoader
 
 
 class Trainer:
@@ -11,13 +12,21 @@ class Trainer:
 
     # to be completed with gradient accumulation and amp
     # sheduler usage is limited to batches and epochs
-    def __init__(self, model_cls, train_loader, criterion_cls, optimizer_cls,
+    def __init__(self, model_cls, train_data, train_loader_kwargs,
+                 criterion_cls, optimizer_cls,
                  model_kwargs=None, model_pretrain_weights_path=None,
                  optimizer_kwargs=None, device="cuda" if torch.cuda.is_available() else "cpu",
-                 valid_loader=None, scheduler_cls=None, scheduler_kwargs=None,
-                 scheduler_update_point="epoch", verbose=True, test_loader=None,
+                 valid_data=None, valid_loader_kwargs=None,
+                 scheduler_cls=None, scheduler_kwargs=None,
+                 scheduler_update_point="epoch", verbose=True,
+                 test_data=None, test_loader_kwargs=None,
                  checkpoint_path=None, seed=42):
         
+        self.verbose = verbose
+
+        self.seed = seed
+        self._set_seed()
+
         # essentials
         self.device = device
         self.model_cls = model_cls
@@ -26,7 +35,11 @@ class Trainer:
         self.model_pretrain_weights_path = model_pretrain_weights_path
         if self.model_pretrain_weights_path is not None:
             self.model.load_base_weights(self.model_pretrain_weights_path)
-        self.train_loader = train_loader
+
+        self.train_data = train_data
+        self.train_loader_kwargs = train_loader_kwargs if train_loader_kwargs is not None else {}
+        self.train_loader = DataLoader(self.train_data, **self.train_loader_kwargs)
+
         self.criterion = criterion_cls()
         if optimizer_cls is not None:
             self.optimizer_cls = optimizer_cls
@@ -36,8 +49,16 @@ class Trainer:
             self.optimizer = None
 
         # optionals
-        self.valid_loader = valid_loader
-        self.test_loader = test_loader
+        self.valid_data = valid_data
+        self.valid_loader_kwargs = valid_loader_kwargs if valid_loader_kwargs is not None else {}
+        if self.valid_data is not None:
+            self.valid_loader = DataLoader(self.valid_data, **self.valid_loader_kwargs)
+
+        self.test_data = test_data
+        self.test_loader_kwargs = test_loader_kwargs if test_loader_kwargs is not None else {}
+        if self.test_data is not None:
+            self.test_loader = DataLoader(self.test_data, **self.test_loader_kwargs)
+
         if scheduler_cls is not None and self.optimizer is not None:
             self.scheduler_cls = scheduler_cls
             self.scheduler_kwargs = scheduler_kwargs if scheduler_kwargs is not None else {}
@@ -45,11 +66,7 @@ class Trainer:
         else:
             self.scheduler = None
         self.scheduler_update_point = scheduler_update_point
-        self.verbose = verbose
         self.checkpoint_path = checkpoint_path
-        self.seed = seed
-
-        self._set_seed()
 
 
     def _set_seed(self):
@@ -126,9 +143,15 @@ class Trainer:
         """Reset model, optimizer and scheduler
         before new training run
         """
+        if new_seed is not None:
+            self.seed = new_seed
+            self._set_seed()
+
         self.model = self.model_cls(**self.model_kwargs).to(self.device)
         if self.model_pretrain_weights_path is not None:
             self.model.load_base_weights(self.model_pretrain_weights_path)
+
+        self.train_loader = DataLoader(self.train_data, **self.train_loader_kwargs)
 
         if self.optimizer_cls is not None:
             self.optimizer = self.optimizer_cls(self.model.parameters(), **self.optimizer_kwargs)
@@ -136,9 +159,11 @@ class Trainer:
         if self.scheduler_cls is not None and self.optimizer is not None:
             self.scheduler = self.scheduler_cls(self.optimizer, **self.scheduler_kwargs)
 
-        if new_seed is not None:
-            self.seed = new_seed
-            self._set_seed()
+        if self.valid_data is not None:
+            self.valid_loader = DataLoader(self.valid_data, **self.valid_loader_kwargs)
+
+        if self.test_data is not None:
+            self.test_loader = DataLoader(self.test_data, **self.test_loader_kwargs)
 
 
     def train(self, num_epochs=10, checkpoint_path=None, test=True):
@@ -190,6 +215,7 @@ class Trainer:
         if self.verbose:
             tqdm.write("Модель сохранена в best.pth")
 
+        test_loss, test_acc = None, None
         if test:
             test_loss, test_acc = self.test()
 
