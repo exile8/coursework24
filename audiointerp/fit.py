@@ -41,9 +41,10 @@ class Trainer:
         self.train_loader = DataLoader(self.train_data, **self.train_loader_kwargs)
 
         self.criterion = criterion_cls()
-        if optimizer_cls is not None:
-            self.optimizer_cls = optimizer_cls
-            self.optimizer_kwargs = optimizer_kwargs if optimizer_kwargs is not None else {}
+
+        self.optimizer_cls = optimizer_cls
+        self.optimizer_kwargs = optimizer_kwargs if optimizer_kwargs is not None else {}
+        if self.optimizer_cls is not None:
             self.optimizer = self.optimizer_cls(self.model.parameters(), **self.optimizer_kwargs)
         else:
             self.optimizer = None
@@ -59,9 +60,9 @@ class Trainer:
         if self.test_data is not None:
             self.test_loader = DataLoader(self.test_data, **self.test_loader_kwargs)
 
+        self.scheduler_cls = scheduler_cls
+        self.scheduler_kwargs = scheduler_kwargs if scheduler_kwargs is not None else {}
         if scheduler_cls is not None and self.optimizer is not None:
-            self.scheduler_cls = scheduler_cls
-            self.scheduler_kwargs = scheduler_kwargs if scheduler_kwargs is not None else {}
             self.scheduler = self.scheduler_cls(self.optimizer, **self.scheduler_kwargs)
         else:
             self.scheduler = None
@@ -145,7 +146,7 @@ class Trainer:
         """
         if new_seed is not None:
             self.seed = new_seed
-            self._set_seed()
+        self._set_seed()
 
         self.model = self.model_cls(**self.model_kwargs).to(self.device)
         if self.model_pretrain_weights_path is not None:
