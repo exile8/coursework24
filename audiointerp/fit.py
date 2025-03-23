@@ -1,0 +1,227 @@
+import random
+import numpy as np
+from tqdm import tqdm
+import torch
+
+
+class Trainer:
+    """Class for handling model training, validation and testing
+    Also supports fine-tuning
+    """
+
+    # to be completed with gradient accumulation and amp
+    # sheduler usage is limited to batches and epochs
+    def __init__(self, model_cls, train_loader, criterion_cls, optimizer_cls,
+                 model_kwargs=None, model_pretrain_weights_path=None,
+                 optimizer_kwargs=None, device="cuda" if torch.cuda.is_available() else "cpu",
+                 valid_loader=None, scheduler_cls=None, scheduler_kwargs=None,
+                 scheduler_update_point="epoch", verbose=True, test_loader=None,
+                 checkpoint_path=None, seed=42):
+        
+        # essentials
+        self.device = device
+        self.model_cls = model_cls
+        self.model_kwargs = model_kwargs if model_kwargs is not None else {}
+        self.model = self.model_cls(**self.model_kwargs).to(self.device)
+        self.model_pretrain_weights_path = model_pretrain_weights_path
+        if self.model_pretrain_weights_path is not None:
+            self.model.load_base_weights(self.model_pretrain_weights_path)
+        self.train_loader = train_loader
+        self.criterion = criterion_cls()
+        if optimizer_cls is not None:
+            self.optimizer_cls = optimizer_cls
+            self.optimizer_kwargs = optimizer_kwargs if optimizer_kwargs is not None else {}
+            self.optimizer = self.optimizer_cls(self.model.parameters(), **self.optimizer_kwargs)
+        else:
+            self.optimizer = None
+
+        # optionals
+        self.valid_loader = valid_loader
+        self.test_loader = test_loader
+        if scheduler_cls is not None and self.optimizer is not None:
+            self.scheduler_cls = scheduler_cls
+            self.scheduler_kwargs = scheduler_kwargs if scheduler_kwargs is not None else {}
+            self.scheduler = self.scheduler_cls(self.optimizer, **self.scheduler_kwargs)
+        else:
+            self.scheduler = None
+        self.scheduler_update_point = scheduler_update_point
+        self.verbose = verbose
+        self.checkpoint_path = checkpoint_path
+        self.seed = seed
+
+        self._set_seed()
+
+
+    def _set_seed(self):
+        random.seed(self.seed)
+        np.random.seed(self.seed)
+        torch.manual_seed(self.seed)
+        torch.cuda.manual_seed_all(self.seed)
+        torch.backends.cudnn.deterministic = True
+        torch.backends.cudnn.benchmark = False
+        if self.verbose:
+            tqdm.write(f"Random seed set to: {self.seed}")
+
+
+    def _train_step(self):
+        self.model.train()
+        running_loss = 0.0
+        running_corrects = 0
+        total_samples = 0
+    
+        for samples, labels in self.train_loader:
+            samples = samples.to(self.device)
+            labels = labels.to(self.device)
+        
+            self.optimizer.zero_grad()
+            outputs = self.model(samples)
+            loss = self.criterion(outputs, labels)
+        
+            loss.backward()
+            self.optimizer.step()
+        
+            _, preds = torch.max(outputs, 1)
+            running_loss += loss.item() * samples.size(0)
+            running_corrects += torch.sum(preds == labels.data)
+            total_samples += samples.size(0)
+
+            if self.scheduler is not None and self.scheduler_update_point == "batch":
+                self.scheduler.step()
+    
+        epoch_loss = running_loss / total_samples
+        epoch_acc = running_corrects.double() / total_samples
+    
+        return epoch_loss, epoch_acc.item()
+
+
+    def _valid_step(self):
+        if self.valid_loader is None:
+            return None, None
+                
+        self.model.eval()
+        running_loss = 0.0
+        running_corrects = 0
+        total_samples = 0
+    
+        with torch.no_grad():
+            for samples, labels in self.valid_loader:
+                samples = samples.to(self.device)
+                labels = labels.to(self.device)
+            
+                outputs = self.model(samples)
+                loss = self.criterion(outputs, labels)
+            
+                _, preds = torch.max(outputs, 1)
+                running_loss += loss.item() * samples.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+                total_samples += samples.size(0)
+    
+        epoch_loss = running_loss / total_samples
+        epoch_acc = running_corrects.double() / total_samples
+    
+        return epoch_loss, epoch_acc.item()
+
+
+    def reset(self, new_seed=None):
+        """Reset model, optimizer and scheduler
+        before new training run
+        """
+        self.model = self.model_cls(**self.model_kwargs).to(self.device)
+        if self.model_pretrain_weights_path is not None:
+            self.model.load_base_weights(self.model_pretrain_weights_path)
+
+        if self.optimizer_cls is not None:
+            self.optimizer = self.optimizer_cls(self.model.parameters(), **self.optimizer_kwargs)
+
+        if self.scheduler_cls is not None and self.optimizer is not None:
+            self.scheduler = self.scheduler_cls(self.optimizer, **self.scheduler_kwargs)
+
+        if new_seed is not None:
+            self.seed = new_seed
+            self._set_seed()
+
+
+    def train(self, num_epochs=10, checkpoint_path=None, test=True):
+        best_acc = 0.0
+        best_model = None
+        start_epoch = 0
+
+        train_losses = []
+        train_accs = []
+        val_losses = []
+        val_accs = []
+
+        pbar = tqdm(range(start_epoch, num_epochs))
+        for epoch in pbar:
+            pbar.set_description(f"Epoch {epoch}/{num_epochs}")
+    
+            train_loss, train_acc = self._train_step()
+            val_loss, val_acc = self._valid_step()
+
+            if self.verbose:
+                epoch_report = f"Train Loss: {train_loss:.4f}, Train Acc: {train_acc:.4f}"
+                if val_loss is not None:
+                    epoch_report += f"\nValid Loss: {val_loss:.4f}, Valid Acc: {val_acc:.4f}"
+                tqdm.write(epoch_report)
+
+            if self.scheduler is not None:
+                if self.scheduler_update_point == "epoch":
+                    self.scheduler.step()
+                elif self.scheduler_update_point == "plateau":
+                    self.scheduler.step(val_loss)
+
+            train_losses.append(train_loss)
+            train_accs.append(train_acc)
+
+            val_losses.append(val_loss)
+            val_accs.append(val_acc)
+    
+            if val_acc is not None and val_acc > best_acc:
+                best_acc = val_acc
+                best_model = self.model.state_dict()
+
+        if self.verbose:
+            tqdm.write(f"Best val Acc: {best_acc:.4f}")
+
+        if best_model is not None:
+            self.model.load_state_dict(best_model)
+    
+        torch.save(self.model.state_dict(), "best.pth")
+        if self.verbose:
+            tqdm.write("Модель сохранена в best.pth")
+
+        if test:
+            test_loss, test_acc = self.test()
+
+        return train_losses, train_accs, val_losses, val_accs, test_loss, test_acc
+
+
+    def test(self):
+        if self.test_loader is None:
+            return None, None
+        
+        self.model.eval()
+        running_loss = 0.0
+        running_corrects = 0
+        total_samples = 0
+    
+        with torch.no_grad():
+            for samples, labels in self.test_loader:
+                samples = samples.to(self.device)
+                labels = labels.to(self.device)
+            
+                outputs = self.model(samples)
+                loss = self.criterion(outputs, labels)
+            
+                _, preds = torch.max(outputs, 1)
+                running_loss += loss.item() * samples.size(0)
+                running_corrects += torch.sum(preds == labels.data)
+                total_samples += samples.size(0)
+    
+        test_loss = running_loss / total_samples
+        test_acc = running_corrects.double() / total_samples
+
+        if self.verbose:
+            tqdm.write(f"Test Loss: {test_loss:.4f}, Test Acc: {test_acc.item():.4f}")
+    
+        return test_loss, test_acc.item()
