@@ -20,7 +20,7 @@ class Trainer:
                  scheduler_cls=None, scheduler_kwargs=None,
                  scheduler_update_point="epoch", verbose=True,
                  test_data=None, test_loader_kwargs=None,
-                 checkpoint_path=None, seed=42):
+                 checkpoint_path=None, use_mixup=False, mixup_alpha=None, seed=42):
         
         self.verbose = verbose
 
@@ -38,7 +38,7 @@ class Trainer:
 
         self.train_data = train_data
         self.train_loader_kwargs = train_loader_kwargs if train_loader_kwargs is not None else {}
-        self.train_loader = DataLoader(self.train_data, **self.train_loader_kwargs)
+        self.train_loader = self._make_dataloader(self.train_data, self.train_loader_kwargs)
 
         self.criterion = criterion_cls()
 
@@ -53,12 +53,16 @@ class Trainer:
         self.valid_data = valid_data
         self.valid_loader_kwargs = valid_loader_kwargs if valid_loader_kwargs is not None else {}
         if self.valid_data is not None:
-            self.valid_loader = DataLoader(self.valid_data, **self.valid_loader_kwargs)
+            self.valid_loader = self._make_dataloader(self.valid_data, self.valid_loader_kwargs)
+        else:
+            self.valid_loader = None
 
         self.test_data = test_data
         self.test_loader_kwargs = test_loader_kwargs if test_loader_kwargs is not None else {}
         if self.test_data is not None:
-            self.test_loader = DataLoader(self.test_data, **self.test_loader_kwargs)
+            self.test_loader = self._make_dataloader(self.test_data, self.test_loader_kwargs)
+        else:
+            self.test_loader = None
 
         self.scheduler_cls = scheduler_cls
         self.scheduler_kwargs = scheduler_kwargs if scheduler_kwargs is not None else {}
@@ -67,6 +71,10 @@ class Trainer:
         else:
             self.scheduler = None
         self.scheduler_update_point = scheduler_update_point
+
+        self.use_mixup = use_mixup
+        self.mixup_alpha = mixup_alpha
+
         self.checkpoint_path = checkpoint_path
 
 
@@ -81,6 +89,37 @@ class Trainer:
             tqdm.write(f"Random seed set to: {self.seed}")
 
 
+    def _make_dataloader(self, data, loader_kwargs):
+        kwargs = loader_kwargs.copy()
+
+        if "generator" not in kwargs and kwargs.get("shuffle", False):
+            kwargs["generator"] = torch.Generator()
+            kwargs["generator"].manual_seed(self.seed)
+
+        if "worker_init_fn" not in kwargs and kwargs.get("num_workers", 0) > 0:
+            def seed_worker(worker_id):
+                worker_seed = torch.initial_seed() % 2**32
+                np.random.seed(worker_seed)
+                random.seed(worker_seed)
+            kwargs["worker_init_fn"] = seed_worker
+
+        return DataLoader(data, **kwargs)
+    
+
+    def _mixup(self, x, y):
+        if self.mixup_alpha <= 0:
+            return x, y, y, 1.0
+
+        lam = np.random.beta(self.mixup_alpha, self.mixup_alpha)
+        batch_size = x.size(0)
+        index = torch.randperm(batch_size).to(x.device)
+
+        mixed_x = lam * x + (1 - lam) * x[index, :]
+
+        y_a, y_b = y, y[index]
+        return mixed_x, y_a, y_b, lam
+
+
     def _train_step(self):
         self.model.train()
         running_loss = 0.0
@@ -92,15 +131,25 @@ class Trainer:
             labels = labels.to(self.device)
         
             self.optimizer.zero_grad()
-            outputs = self.model(samples)
-            loss = self.criterion(outputs, labels)
+
+            if self.use_mixup:
+                samples, labels_a, labels_b, lam = self._mixup(samples, labels)
+                outputs = self.model(samples)
+                loss = lam * self.criterion(outputs, labels_a) + (1 - lam) * self.criterion(outputs, labels_b)
+            else:
+                outputs = self.model(samples)
+                loss = self.criterion(outputs, labels)
         
             loss.backward()
             self.optimizer.step()
         
             _, preds = torch.max(outputs, 1)
             running_loss += loss.item() * samples.size(0)
-            running_corrects += torch.sum(preds == labels.data)
+            if self.use_mixup:
+                running_corrects += lam * torch.sum(preds == labels_a) + (1 - lam) * torch.sum(preds == labels_b)
+            else:
+                running_corrects += torch.sum(preds == labels)
+                
             total_samples += samples.size(0)
 
             if self.scheduler is not None and self.scheduler_update_point == "batch":
@@ -152,34 +201,32 @@ class Trainer:
         if self.model_pretrain_weights_path is not None:
             self.model.load_base_weights(self.model_pretrain_weights_path)
 
-        self.train_loader = DataLoader(self.train_data, **self.train_loader_kwargs)
+        self.train_loader = self._make_dataloader(self.train_data, self.train_loader_kwargs)
 
         if self.optimizer_cls is not None:
             self.optimizer = self.optimizer_cls(self.model.parameters(), **self.optimizer_kwargs)
 
+        if self.valid_data is not None:
+            self.valid_loader = self._make_dataloader(self.valid_data, self.valid_loader_kwargs)
+
+        if self.test_data is not None:
+            self.test_loader = self._make_dataloader(self.test_data, self.test_loader_kwargs)
+
         if self.scheduler_cls is not None and self.optimizer is not None:
             self.scheduler = self.scheduler_cls(self.optimizer, **self.scheduler_kwargs)
 
-        if self.valid_data is not None:
-            self.valid_loader = DataLoader(self.valid_data, **self.valid_loader_kwargs)
 
-        if self.test_data is not None:
-            self.test_loader = DataLoader(self.test_data, **self.test_loader_kwargs)
-
-
-    def train(self, num_epochs=10, checkpoint_path=None, test=True):
+    def train(self, num_epochs=10, checkpoint_path=None):
         best_acc = 0.0
         best_model = None
-        start_epoch = 0
+        start_epoch = 1
 
         train_losses = []
         train_accs = []
         val_losses = []
         val_accs = []
 
-        pbar = tqdm(range(start_epoch, num_epochs))
-        for epoch in pbar:
-            pbar.set_description(f"Epoch {epoch}/{num_epochs}")
+        for epoch in tqdm(range(start_epoch, num_epochs + 1), desc="Epoch"):
     
             train_loss, train_acc = self._train_step()
             val_loss, val_acc = self._valid_step()
@@ -216,9 +263,7 @@ class Trainer:
         if self.verbose:
             tqdm.write("Модель сохранена в best.pth")
 
-        test_loss, test_acc = None, None
-        if test:
-            test_loss, test_acc = self.test()
+        test_loss, test_acc = self.test()
 
         return train_losses, train_accs, val_losses, val_accs, test_loss, test_acc
 
