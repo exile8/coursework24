@@ -18,7 +18,7 @@ class BaseInterpreter(ABC):
 
     def create_masks(self, attributions):
         """Mask intepretation"""
-        masks = F.sigmoid(attributions)
+        masks = attributions / (attributions.amax(dim=(1, 2, 3), keepdim=True) + 1e-8)
         return masks
     
 
