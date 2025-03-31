@@ -19,15 +19,12 @@ class Predict:
     def predict(self, wav, wav_name, sr, save_dir="predictions"):
         os.makedirs(save_dir, exist_ok=True)
 
-        if not isinstance(wav, list):
-            wavs = [wav]
-        else:
-            wavs = wav
+        wav = wav.unsqueeze(0)
 
-        inputs, stages = self.feature_extractor(wavs)
+        inputs, *stages = self.feature_extractor(wav)
         inputs = inputs.to(self.device)
 
-        out_dict = self.interpretator.interpret(inputs)
+        out_dict = self.interpretator.interpret(inputs.unsqueeze(0))
         _, masks = out_dict.values()
 
         min_per_sample = inputs.amin(dim=(1, 2, 3), keepdim=True)
@@ -60,9 +57,9 @@ class Predict:
         if len(stages) == 2:
             stages = (stages[0], stages[1] * masks)
 
-        masked_wav   = self.feature_extractor.inverse(masked_inputs, *stages)
-        unmasked_wav = self.feature_extractor.inverse(unmasked_inputs, *stages)
-        orig_wav     = self.feature_extractor.inverse(inputs, *stages)
+        masked_wav = self.feature_extractor.inverse(masked_inputs, *stages).squeeze(0)
+        unmasked_wav = self.feature_extractor.inverse(unmasked_inputs, *stages).squeeze(0)
+        orig_wav = self.feature_extractor.inverse(inputs, *stages).squeeze(0)
 
         torchaudio.save(os.path.join(save_dir, f"{wav_name}_original.wav"),
                         orig_wav.cpu(), sr)
@@ -106,21 +103,21 @@ class Predict:
                 logits_masked = self.model(masked_inputs)
                 logits_unmasked = self.model(unmasked_inputs)
 
-        ff = Metrics.compute_FF(logits=logits_original, logits_out=logits_unmasked)
-        ai = Metrics.compute_AI(logits=logits_original, logits_in=logits_masked)
-        ad = Metrics.compute_AD(logits=logits_original, logits_in=logits_masked)
-        ag = Metrics.compute_AG(logits=logits_original, logits_in=logits_masked)
-        fidin = Metrics.compute_FidIn(logits=logits_original, logits_in=logits_masked)
-        sps = Metrics.compute_SPS(inputs, masks, logits_original, self.device)
-        comp = Metrics.compute_COMP(inputs, masks, logits_original, self.device)
+            ff = Metrics.compute_FF(logits=logits_original, logits_out=logits_unmasked)
+            ai = Metrics.compute_AI(logits=logits_original, logits_in=logits_masked)
+            ad = Metrics.compute_AD(logits=logits_original, logits_in=logits_masked)
+            ag = Metrics.compute_AG(logits=logits_original, logits_in=logits_masked)
+            fidin = Metrics.compute_FidIn(logits=logits_original, logits_in=logits_masked)
+            sps = Metrics.compute_SPS(inputs, masks, logits_original, self.device)
+            comp = Metrics.compute_COMP(inputs, masks, logits_original, self.device)
 
-        results["FF"].append(ff.cpu())
-        results["AI"].append(ai.cpu())
-        results["AD"].append(ad.cpu())
-        results["AG"].append(ag.cpu())
-        results["FidIn"].append(fidin.cpu())
-        results["SPS"].append(torch.tensor(sps).cpu())
-        results["COMP"].append(torch.tensor(comp).cpu())
+            results["FF"].append(ff.cpu())
+            results["AI"].append(ai.cpu())
+            results["AD"].append(ad.cpu())
+            results["AG"].append(ag.cpu())
+            results["FidIn"].append(fidin.cpu())
+            results["SPS"].append(torch.tensor(sps).cpu())
+            results["COMP"].append(torch.tensor(comp).cpu())
     
         for m in results:
             results[m] = torch.cat(results[m])
