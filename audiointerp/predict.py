@@ -3,6 +3,7 @@ import torchaudio
 import os
 import matplotlib.pyplot as plt
 from .metrics import Metrics
+import torch.nn.functional as F
 
 class Predict:
 
@@ -19,12 +20,11 @@ class Predict:
     def predict(self, wav, wav_name, sr, save_dir="predictions"):
         os.makedirs(save_dir, exist_ok=True)
 
-        wav = wav.unsqueeze(0)
-
-        inputs, *stages = self.feature_extractor(wav)
+        inputs, *stages = self.feature_extractor(wav.unsqueeze(0))
         inputs = inputs.to(self.device)
 
-        out_dict = self.interpretator.interpret(inputs.unsqueeze(0))
+
+        out_dict = self.interpretator.interpret(inputs)
         _, masks = out_dict.values()
 
         min_per_sample = inputs.amin(dim=(1, 2, 3), keepdim=True)
@@ -32,9 +32,9 @@ class Predict:
         masked_inputs = (inputs - min_per_sample) * masks + min_per_sample
 
         with torch.no_grad():
-            logits_original = self.model(inputs)
-            logits_masked   = self.model(masked_inputs)
-            logits_unmasked = self.model(unmasked_inputs)
+            logits_original = F.softmax(self.model(inputs), dim=1)
+            logits_masked   = F.softmax(self.model(masked_inputs), dim=1)
+            logits_unmasked = F.softmax(self.model(unmasked_inputs), dim=1)
 
         ff     = Metrics.compute_FF(logits=logits_original, logits_out=logits_unmasked)
         ai     = Metrics.compute_AI(logits=logits_original, logits_in=logits_masked)
@@ -55,10 +55,14 @@ class Predict:
         }
 
         if len(stages) == 2:
-            stages = (stages[0], stages[1] * masks)
+            stages_masked = (stages[0], stages[1] * masks)
+            stages_unmasked = (stages[0], stages[1] * (1 - masks))
+        else:
+            stages_masked = stages
+            stages_unmasked = stages
 
-        masked_wav = self.feature_extractor.inverse(masked_inputs, *stages).squeeze(0)
-        unmasked_wav = self.feature_extractor.inverse(unmasked_inputs, *stages).squeeze(0)
+        masked_wav = self.feature_extractor.inverse(masked_inputs, *stages_masked).squeeze(0)
+        unmasked_wav = self.feature_extractor.inverse(unmasked_inputs, *stages_unmasked).squeeze(0)
         orig_wav = self.feature_extractor.inverse(inputs, *stages).squeeze(0)
 
         torchaudio.save(os.path.join(save_dir, f"{wav_name}_original.wav"),
@@ -69,7 +73,7 @@ class Predict:
                         unmasked_wav.cpu(), sr)
 
         plt.figure(figsize=(6,4))
-        mask_for_plot = masks[0].squeeze().detach().cpu().numpy()
+        mask_for_plot = masked_inputs[0].squeeze().detach().cpu().numpy()
         plt.imshow(mask_for_plot, aspect='auto', origin='lower')
         plt.colorbar()
         plt.title(f"Mask for {wav_name}")
