@@ -122,8 +122,9 @@ class Predict:
             results["FidIn"].append(fidin.cpu())
             results["SPS"].append(torch.tensor(sps).cpu())
             results["COMP"].append(torch.tensor(comp).cpu())
+
     
         for m in results:
             results[m] = torch.cat(results[m])
 
-        return results, probs_original, probs_masked, probs_unmasked
+        return results
