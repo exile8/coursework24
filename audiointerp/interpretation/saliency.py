@@ -7,8 +7,8 @@ class SaliencyInterpreter(BaseInterpreter):
 
     def __init__(self, model):
         super().__init__(model)
-
-        self.saliency = Saliency_captum(model)
+        
+        self.saliency = Saliency_captum(self.model)
 
     def compute_interpretation(self, inputs):
         
