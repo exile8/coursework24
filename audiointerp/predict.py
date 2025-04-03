@@ -32,17 +32,17 @@ class Predict:
         masked_inputs = (inputs - min_per_sample) * masks + min_per_sample
 
         with torch.no_grad():
-            logits_original = F.softmax(self.model(inputs), dim=1)
-            logits_masked   = F.softmax(self.model(masked_inputs), dim=1)
-            logits_unmasked = F.softmax(self.model(unmasked_inputs), dim=1)
+            probs_original = F.softmax(self.model(inputs), dim=1)
+            probs_masked   = F.softmax(self.model(masked_inputs), dim=1)
+            probs_unmasked = F.softmax(self.model(unmasked_inputs), dim=1)
 
-        ff     = Metrics.compute_FF(logits=logits_original, logits_out=logits_unmasked)
-        ai     = Metrics.compute_AI(logits=logits_original, logits_in=logits_masked)
-        ad     = Metrics.compute_AD(logits=logits_original, logits_in=logits_masked)
-        ag     = Metrics.compute_AG(logits=logits_original, logits_in=logits_masked)
-        fidin  = Metrics.compute_FidIn(logits=logits_original, logits_in=logits_masked)
-        sps    = Metrics.compute_SPS(inputs, masks, logits_original, self.device)
-        comp   = Metrics.compute_COMP(inputs, masks, logits_original, self.device)
+        ff     = Metrics.compute_FF(probs=probs_original, probs_out=probs_unmasked)
+        ai     = Metrics.compute_AI(probs=probs_original, probs_in=probs_masked)
+        ad     = Metrics.compute_AD(probs=probs_original, probs_in=probs_masked)
+        ag     = Metrics.compute_AG(probs=probs_original, probs_in=probs_masked)
+        fidin  = Metrics.compute_FidIn(probs=probs_original, probs_in=probs_masked)
+        sps    = Metrics.compute_SPS(inputs, masks, probs_original, self.device)
+        comp   = Metrics.compute_COMP(inputs, masks, probs_original, self.device)
 
         results = {
             "FF":    ff.detach().cpu(),
@@ -103,17 +103,17 @@ class Predict:
             masked_inputs = (inputs - inputs.amin(dim=(1, 2, 3), keepdim=True)) * masks + inputs.amin(dim=(1, 2, 3), keepdim=True)
 
             with torch.no_grad():
-                logits_original = self.model(inputs)
-                logits_masked = self.model(masked_inputs)
-                logits_unmasked = self.model(unmasked_inputs)
+                probs_original = F.softmax(self.model(inputs), dim=1)
+                probs_masked = F.softmax(self.model(masked_inputs), dim=1)
+                probs_unmasked = F.softmax(self.model(unmasked_inputs), dim=1)
 
-            ff = Metrics.compute_FF(logits=logits_original, logits_out=logits_unmasked)
-            ai = Metrics.compute_AI(logits=logits_original, logits_in=logits_masked)
-            ad = Metrics.compute_AD(logits=logits_original, logits_in=logits_masked)
-            ag = Metrics.compute_AG(logits=logits_original, logits_in=logits_masked)
-            fidin = Metrics.compute_FidIn(logits=logits_original, logits_in=logits_masked)
-            sps = Metrics.compute_SPS(inputs, masks, logits_original, self.device)
-            comp = Metrics.compute_COMP(inputs, masks, logits_original, self.device)
+            ff = Metrics.compute_FF(probs=probs_original, probs_out=probs_unmasked)
+            ai = Metrics.compute_AI(probs=probs_original, probs_in=probs_masked)
+            ad = Metrics.compute_AD(probs=probs_original, probs_in=probs_masked)
+            ag = Metrics.compute_AG(probs=probs_original, probs_in=probs_masked)
+            fidin = Metrics.compute_FidIn(probs=probs_original, probs_in=probs_masked)
+            sps = Metrics.compute_SPS(inputs, masks, probs_original, self.device)
+            comp = Metrics.compute_COMP(inputs, masks, probs_original, self.device)
 
             results["FF"].append(ff.cpu())
             results["AI"].append(ai.cpu())
@@ -126,4 +126,4 @@ class Predict:
         for m in results:
             results[m] = torch.cat(results[m])
 
-        return results
+        return results, probs_original, probs_masked, probs_unmasked
