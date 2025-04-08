@@ -4,6 +4,8 @@ import os
 import matplotlib.pyplot as plt
 from .metrics import Metrics
 import torch.nn.functional as F
+import librosa
+import numpy as np
 
 class Predict:
 
@@ -72,11 +74,36 @@ class Predict:
         torchaudio.save(os.path.join(save_dir, f"{wav_name}_unmasked.wav"),
                         unmasked_wav.cpu(), sr)
 
-        plt.figure(figsize=(6,4))
+
+
+        n_mels = inputs.shape[2]
+        mel_freqs = librosa.mel_frequencies(n_mels=n_mels, fmin=0, fmax=sr / 2)
+
+        plt.figure(figsize=(6, 4))
+        original_spec = inputs[0].squeeze().detach().cpu().numpy()
+        plt.imshow(original_spec, aspect='auto', origin='lower')
+        plt.colorbar()
+        plt.xlabel("Time Steps")
+        plt.ylabel("Frequency (Hz)")
+        plt.title(f"Original Spectrogram for {wav_name}")
+
+        yticks = np.linspace(0, n_mels - 1, 6)
+        ylabels = [f"{int(mel_freqs[int(i)])} Hz" for i in yticks]
+        plt.yticks(yticks, ylabels)
+
+        plt.savefig(os.path.join(save_dir, f"{wav_name}_original_spec.png"))
+        plt.close()
+
+        plt.figure(figsize=(6, 4))
         mask_for_plot = masked_inputs[0].squeeze().detach().cpu().numpy()
         plt.imshow(mask_for_plot, aspect='auto', origin='lower')
         plt.colorbar()
+        plt.xlabel("Time Steps")
+        plt.ylabel("Frequency (Hz)")
         plt.title(f"Mask for {wav_name}")
+
+        plt.yticks(yticks, ylabels)
+
         plt.savefig(os.path.join(save_dir, f"{wav_name}_mask.png"))
         plt.close()
 
