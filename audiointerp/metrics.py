@@ -62,6 +62,9 @@ class Metrics:
 
         sps_metric = quantus.Sparseness()
 
+        if torch.allclose(interpretations, torch.zeros_like(interpretations)):
+            return [0.0]
+
         sps = sps_metric(model=None, x_batch=samples.clone().detach().cpu().numpy(),
                          y_batch=pred_cl.clone().detach().cpu().numpy(),
                          a_batch=interpretations.clone().detach().cpu().numpy(),
@@ -75,6 +78,9 @@ class Metrics:
 
         comp_metric = quantus.Complexity()
 
+        if torch.allclose(interpretations, torch.zeros_like(interpretations)):
+            return [0.0]
+            
         comp = comp_metric(model=None, x_batch=samples.clone().detach().cpu().numpy(),
                            y_batch=pred_cl.clone().detach().cpu().numpy(),
                            a_batch=interpretations.clone().detach().cpu().numpy(),

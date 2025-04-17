@@ -142,16 +142,16 @@ class Predict:
             sps = Metrics.compute_SPS(inputs, masks, probs_original, self.device)
             comp = Metrics.compute_COMP(inputs, masks, probs_original, self.device)
 
-            results["FF"].append(ff.cpu())
-            results["AI"].append(ai.cpu())
-            results["AD"].append(ad.cpu())
-            results["AG"].append(ag.cpu())
-            results["FidIn"].append(fidin.cpu())
-            results["SPS"].append(torch.tensor(sps).cpu())
-            results["COMP"].append(torch.tensor(comp).cpu())
+            results["FF"].append(ff.cpu().view(-1))
+            results["AI"].append(ai.cpu().view(-1))
+            results["AD"].append(ad.cpu().view(-1))
+            results["AG"].append(ag.cpu().view(-1))
+            results["FidIn"].append(fidin.cpu().view(-1))
+            results["SPS"].append(torch.tensor(sps).cpu().view(-1))
+            results["COMP"].append(torch.tensor(comp).cpu().view(-1))
 
     
         for m in results:
-            results[m] = torch.cat(results[m])
+            results[m] = torch.cat(results[m], dim=0)
 
         return results
