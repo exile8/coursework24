@@ -6,6 +6,7 @@ from .metrics import Metrics
 import torch.nn.functional as F
 import librosa
 import numpy as np
+import pandas as pd
 
 class Predict:
 
@@ -110,7 +111,7 @@ class Predict:
         return results
         
 
-    def predict_set(self, dataloader):
+    def predict_set(self, dataloader, results_csv_name, save_dir="results"):
         results = {
             "FF": [],
             "AI": [],
@@ -154,4 +155,11 @@ class Predict:
         for m in results:
             results[m] = torch.cat(results[m], dim=0)
 
-        return results
+        results_df = pd.DataFrame(results)
+        results_path = os.path.join(save_dir, results_csv_name)
+        if not os.path.isdir(save_dir):
+            os.makedirs(save_dir)
+        results_df.to_csv(results_path, index_label="sample")
+        print(f'Results saved as {results_path}')
+
+        return results_df
