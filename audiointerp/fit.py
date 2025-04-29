@@ -31,10 +31,11 @@ class Trainer:
         self.device = device
         self.model_cls = model_cls
         self.model_kwargs = model_kwargs if model_kwargs is not None else {}
-        self.model = self.model_cls(**self.model_kwargs).to(self.device)
+        self.model = self.model_cls(**self.model_kwargs)
         self.model_pretrain_weights_path = model_pretrain_weights_path
         if self.model_pretrain_weights_path is not None:
             self.model.load_base_weights(self.model_pretrain_weights_path)
+        self.model.to(self.device)
 
         self.train_data = train_data
         self.train_loader_kwargs = train_loader_kwargs if train_loader_kwargs is not None else {}
@@ -216,7 +217,7 @@ class Trainer:
             self.scheduler = self.scheduler_cls(self.optimizer, **self.scheduler_kwargs)
 
 
-    def train(self, num_epochs=10, checkpoint_path=None):
+    def train(self, num_epochs=10, save_weights_path=None):
         best_acc = 0.0
         best_model = None
         start_epoch = 1
@@ -259,9 +260,9 @@ class Trainer:
         if best_model is not None:
             self.model.load_state_dict(best_model)
     
-        torch.save(self.model.state_dict(), "best.pth")
+        torch.save(self.model.state_dict(), save_weights_path)
         if self.verbose:
-            tqdm.write("Модель сохранена в best.pth")
+            tqdm.write(f"Модель сохранена в {save_weights_path}")
 
         test_loss, test_acc = self.test()
 

@@ -70,11 +70,11 @@ class ConvBlock(nn.Module):
     
 
 class Cnn14(nn.Module):
-    def __init__(self):
+    def __init__(self, num_bins):
         
         super(Cnn14, self).__init__()
 
-        self.bn0 = nn.BatchNorm2d(64)
+        self.bn0 = nn.BatchNorm2d(num_bins)
 
         self.conv_block1 = ConvBlock(in_channels=1, out_channels=64)
         self.conv_block2 = ConvBlock(in_channels=64, out_channels=128)
@@ -124,11 +124,12 @@ class Cnn14(nn.Module):
     
 
 class TransferCnn14(nn.Module):
-    def __init__(self, num_classes):
+    def __init__(self, num_classes, num_bins):
 
         super(TransferCnn14, self).__init__()
         
-        self.base = Cnn14()
+        self.num_bins = num_bins
+        self.base = Cnn14(num_bins)
         emb_dim = self.base.fc1.out_features
         self.classifier = nn.Linear(in_features=emb_dim, out_features=num_classes)
 
@@ -148,9 +149,11 @@ class TransferCnn14(nn.Module):
         for key, value in weights_full.items():
             if key.startswith(("logmel_extractor", "spectrogram_extractor", "fc_audioset")):
                 continue
+            if self.num_bins != 64 and "bn0" in key:
+                continue
             weights[key] = value
 
-        self.base.load_state_dict(weights)
+        self.base.load_state_dict(weights, strict=False)
         
 
     def forward(self, input):
