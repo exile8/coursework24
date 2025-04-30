@@ -1,6 +1,9 @@
 import os
 import pandas as pd
 from .base import BaseAudioDataset
+import torch
+import torchaudio
+import torchaudio.functional as F
 
 
 class ESC50dataset(BaseAudioDataset):
@@ -49,3 +52,64 @@ class ESC50dataset(BaseAudioDataset):
         metadata = metadata.reset_index(drop=True)
 
         return metadata
+
+
+class ESC50contaminated(ESC50dataset):
+
+    def __init__(self, root_dir, path_to_contaminating_audio,
+                 folds=None, sr=44100, duration=5.0,
+                 normalize=None, feature_extractor=None,
+                 time_augs=None, feature_augs=None):
+
+        self.path_to_contaminating_audio = path_to_contaminating_audio
+
+        super().__init__(root_dir, folds, sr, duration, normalize, feature_extractor, time_augs, feature_augs)
+
+
+    def _load_audio(self, path_to_audio):
+        audio, original_sr = torchaudio.load(path_to_audio)
+
+        # convert to mono if necessary
+        if audio.shape[0] > 1:
+            audio = torch.mean(audio, dim=0, keepdim=True)
+
+        # resample if necessary
+        if original_sr != self.sr:
+            audio = F.resample(audio, original_sr, self.sr)
+
+        # normalization
+        if self.normalize is not None:
+            abs_max = audio.abs().max()
+            if abs_max != 0.:
+                audio /= abs_max
+
+        return audio
+
+
+    def __getitem__(self, idx):
+        audio_path = self.metadata.loc[idx, "path_to_audio"]
+        target = torch.tensor(self.metadata.loc[idx, "target"], dtype=torch.long)
+
+        audio_original = self._load_audio(audio_path)
+        audio_contamination = self._load_audio(self.path_to_contaminating_audio)
+
+        audio = 0.8 * audio_original + 0.2 * audio_contamination
+        if self.normalize is not None:
+            abs_max = audio.abs().max()
+            if abs_max != 0.:
+                audio /= abs_max
+
+        if self.time_augs is not None:
+            audio = self.time_augs(audio)
+
+        audio = self._fix_length(audio)
+
+        if self.feature_extractor is not None:
+            features = self.feature_extractor(audio)
+        else:
+            features = audio
+
+        if self.feature_augs is not None:
+            features = self.feature_augs(features)
+
+        return features, target
