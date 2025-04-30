@@ -269,9 +269,14 @@ class Trainer:
         return train_losses, train_accs, val_losses, val_accs, test_loss, test_acc
 
 
-    def test(self):
-        if self.test_loader is None:
+    def test(self, test_loader_custom=None):
+        if self.test_loader is None and test_loader_custom is None: 
             return None, None
+
+        if test_loader_custom is not None:
+            loader = test_loader_custom
+        else:
+            loader = self.test_loader        
         
         self.model.eval()
         running_loss = 0.0
@@ -279,7 +284,7 @@ class Trainer:
         total_samples = 0
     
         with torch.no_grad():
-            for samples, labels in self.test_loader:
+            for samples, labels in loader:
                 samples = samples.to(self.device)
                 labels = labels.to(self.device)
             
