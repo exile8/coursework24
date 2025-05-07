@@ -60,7 +60,7 @@ class Metrics:
     def compute_SPS(samples, interpretations, probs, device):
         pred_cl = torch.argmax(probs, dim=1)
 
-        sps_metric = quantus.Sparseness()
+        sps_metric = quantus.Sparseness(normalise=True, abs=True)
 
         if torch.allclose(interpretations, torch.zeros_like(interpretations)):
             return [0.0]
@@ -76,7 +76,7 @@ class Metrics:
     def compute_COMP(samples, interpretations, probs, device):
         pred_cl = torch.argmax(probs, dim=1)
 
-        comp_metric = quantus.Complexity()
+        comp_metric = quantus.Complexity(normalise=True, abs=True)
 
         if torch.allclose(interpretations, torch.zeros_like(interpretations)):
             return [0.0]
