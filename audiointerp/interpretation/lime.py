@@ -2,6 +2,7 @@ from .base import BaseInterpreter
 from lime.lime_image import LimeImageExplainer
 import torch
 import numpy as np
+import gc
 
 class LIMEInterpreter(BaseInterpreter):
 
@@ -9,7 +10,7 @@ class LIMEInterpreter(BaseInterpreter):
         super().__init__(model)
 
         self.num_samples = num_samples
-        self.lime = LimeImageExplainer()
+        self.lime = LimeImageExplainer(random_state=12345)
 
 
     def compute_interpretation_single(self, input_single):
@@ -24,19 +25,24 @@ class LIMEInterpreter(BaseInterpreter):
         input_img, spec_max, spec_min = transform_fn(input_single)
 
         def predict_fn(imgs):
-            preds = []
-            for img in imgs:
-                spec_gray = np.mean(img, axis=-1)
-                spec_restored =  spec_gray * (spec_max - spec_min) + spec_min
 
-                input_spec = torch.from_numpy(spec_restored).unsqueeze(0).unsqueeze(0).to(self.device)
+            specs_gray = np.mean(imgs, axis=-1)
+            specs_restored =  specs_gray * (spec_max - spec_min) + spec_min
 
-                with torch.no_grad():
-                    output = self.model(input_spec)
-                    prob = torch.softmax(output, dim=1).cpu().numpy()
-                    preds.append(prob)
+            input_specs = torch.from_numpy(specs_restored).unsqueeze(1).to(self.device)
 
-            return np.vstack(preds)
+            with torch.no_grad():
+                output = self.model(input_specs)
+                probs = torch.softmax(output, dim=1)
+
+            probs_np = probs.detach().cpu()
+            del probs
+            del input_specs
+            del output
+            gc.collect()
+            torch.cuda.empty_cache()
+            
+            return probs_np
 
         explanation = self.lime.explain_instance(
             input_img,

@@ -22,10 +22,3 @@ class GradCAMInterpreter(BaseInterpreter):
         attributions = torch.from_numpy(attributions).unsqueeze(1).to(self.device)
 
         return attributions
-    
-    def create_masks(self, attributions):
-        """Mask intepretation
-        Overriden, because gradcam returns minmax-scaled images by default.
-        """
-        masks = attributions.clone()
-        return masks

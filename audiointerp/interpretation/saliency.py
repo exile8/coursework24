@@ -16,6 +16,6 @@ class SaliencyInterpreter(BaseInterpreter):
         logits = self.model(inputs)
         predicted_class = logits.argmax(dim=1)
 
-        attributions = torch.clamp(self.saliency.attribute(inputs, target=predicted_class, abs=False), min=0.)
+        attributions = self.saliency.attribute(inputs, target=predicted_class, abs=False)
 
         return attributions
