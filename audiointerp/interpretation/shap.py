@@ -21,7 +21,6 @@ class SHAPInterpreter(BaseInterpreter):
         print("Done extracting shap values")
 
         attributions = torch.from_numpy(shap_values[0][..., 0]).to(device=self.device, dtype=torch.float32)
-        attributions = torch.clamp(attributions, min=0.)
 
         del shap_values
         del inputs

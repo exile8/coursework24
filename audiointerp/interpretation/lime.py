@@ -57,7 +57,7 @@ class LIMEInterpreter(BaseInterpreter):
         for seg_id, weight in list(explanation.local_exp.values())[0]:
             attributions[segments == seg_id] = weight
 
-        attributions = torch.clip(torch.from_numpy(attributions).unsqueeze(0).to(self.device), min=0.)
+        attributions = torch.from_numpy(attributions).unsqueeze(0).to(self.device)
 
         return attributions
 
