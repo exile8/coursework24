@@ -21,15 +21,14 @@ def plot_spec(spec,is_mel=True, sample_rate: int = 16000, fmin=0, fmax=8000, cma
     
     if is_mel:
         freqs = librosa.mel_frequencies(n_mels=n_bands, fmin=fmin, fmax=fmax)
-        y_min, y_max = fmin, fmax
     else:
         freqs = np.linspace(0, sample_rate / 2, n_bands)
-        y_min, y_max = 0, sample_rate / 2
 
-    extent = [0, n_frames, y_min, y_max]
 
     plt.figure(figsize=(10, 4))
-    plt.imshow(spec, aspect="auto", origin="lower", extent=extent, cmap=cmap)
+    plt.imshow(spec, aspect="auto", origin="lower", cmap=cmap)
+    yt = np.linspace(0, n_bands-1, 6, dtype=int)
+    plt.yticks(yt, [f"{round(freqs[i])}" for i in yt])
     plt.ylabel("Frequency (Hz)")
     plt.xlabel("Time frame")
     plt.title("Mel Spectrogram" if is_mel else "STFT Spectrogram")
