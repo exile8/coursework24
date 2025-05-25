@@ -51,7 +51,7 @@ def plot_mask_pair(original, masked, feature_type, fmin, fmax,
     if isinstance(masked, torch.Tensor):
         masked = masked.squeeze().detach().cpu().numpy()
 
-    fig, axs = plt.subplots(1, 2, figsize=(10, 3), sharey=True)
+    fig, axs = plt.subplots(1, 2, figsize=(12, 4), sharey=True)
 
     all_min = min(original.min(), masked.min())
     all_max = max(original.max(), masked.max())
@@ -65,7 +65,6 @@ def plot_mask_pair(original, masked, feature_type, fmin, fmax,
     _set_freq_ticks(axs[0], original.shape[0], feature_type, fmin, fmax)
     if suptitle:
         fig.suptitle(suptitle, fontsize=10)
-    plt.tight_layout
     fig.savefig(save_path, dpi=200)
     plt.close(fig)
 
