@@ -2,23 +2,25 @@ from .base import BaseInterpreter
 import torch
 from pytorch_grad_cam import GradCAM
 from pytorch_grad_cam.utils.model_targets import ClassifierOutputTarget
+import numpy as np
 
 
-def scale_cam_image_signed(cam, target_size, keep_dtype=False):
+def scale_cam_image_signed(cam, target_size=None, keep_dtype=False):
     import numpy as np
     import cv2
 
     dtype = cam.dtype
     cam = np.nan_to_num(cam)
     is_3d = cam.ndim == 3
-    if is_3d:
-        resized = []
-        for z in cam:
-            z_rz = cv2.resize(z, target_size, interpolation=cv2.INTER_LINEAR)
-            resized.append(z_rz)
-        cam = np.stack(resized, axis=0)
-    else:
-        cam = cv2.resize(cam, target_size, interpolation=cv2.INTER_LINEAR)
+    if target_size is not None:
+        if is_3d:
+            resized = []
+            for z in cam:
+                z_rz = cv2.resize(z, target_size, interpolation=cv2.INTER_LINEAR)
+                resized.append(z_rz)
+            cam = np.stack(resized, axis=0)
+        else:
+            cam = cv2.resize(cam, target_size, interpolation=cv2.INTER_LINEAR)
 
     if keep_dtype:
         cam = cam.astype(dtype)
@@ -50,9 +52,15 @@ class SignedGradCAM(GradCAM):
 
             cam = self.get_cam_image(input_tensor, target_layer, targets, layer_activations, layer_grads, eigen_smooth)
             scaled = scale_cam_image_signed(cam, target_size)
-            cam_per_target_layer.append(scaled[:, None, :])
+            cam_per_target_layer.append(scaled[:, None, :, :])
 
         return cam_per_target_layer
+
+    def aggregate_multi_layers(self, cam_per_target_layer: np.ndarray) -> np.ndarray:
+        cam_per_target_layer = np.concatenate(cam_per_target_layer, axis=1)
+        result = np.mean(cam_per_target_layer, axis=1)
+        return scale_cam_image_signed(result)
+    
 
 class GradCAMInterpreter(BaseInterpreter):
 
