@@ -134,9 +134,8 @@ class TransferCnn14(nn.Module):
         self.classifier = nn.Linear(in_features=emb_dim, out_features=num_classes)
 
     def load_base_weights(self, path_to_weights=None):
-        if path_to_weights is None:
-            import os
-            
+        import os
+        if not os.path.exists(path_to_weights):
             if not os.path.isdir("weights"):
                 os.makedirs("weights")
 

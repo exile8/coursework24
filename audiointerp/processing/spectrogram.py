@@ -2,6 +2,39 @@ import torch
 import torchaudio.transforms as T_audio
 from .baseprocessor import BaseProcessor
 
+
+
+def plot_spec(spec,is_mel=True, sample_rate: int = 16000, fmin=0, fmax=8000, cmap="magma"):
+    if spec.ndim == 3:
+        spec = spec[0, :, :]
+    elif spec.ndim != 2:
+        raise ValueError("Spec format is wrong")
+
+    if isinstance(spec, torch.Tensor):
+        spec = spec.detach().cpu().numpy()
+
+    n_bands, n_frames = spec.shape
+    
+    if is_mel:
+        freqs = librosa.mel_frequencies(n_mels=n_bands, fmin=fmin, fmax=fmax)
+        y_min, y_max = fmin, fmax
+    else:
+        freqs = np.linspace(0, sample_rate / 2, n_bands)
+        y_min, y_max = 0, sample_rate / 2
+
+    extent = [0, n_frames, y_min, y_max]
+
+    plt.figure(figsize=(10, 4))
+    plt.imshow(spec, aspect="auto", origin="lower", extent=extent, cmap=cmap)
+    plt.ylabel("Frequency (Hz)")
+    plt.xlabel("Time frame")
+    plt.title("Mel Spectrogram" if is_mel else "STFT Spectrogram")
+    plt.colorbar(label="Energy (dB)")
+    plt.tight_layout()
+    plt.show()
+
+    
+
 def _db_to_linear(spec_db, stype):
     if stype == "power":
         return 10.0 ** (spec_db * 0.1)
@@ -9,6 +42,8 @@ def _db_to_linear(spec_db, stype):
         return 10.0 ** (spec_db * 0.05)
     else:
         raise ValueError(f"Unknown stype: {stype}")
+
+        
 
 class STFTSpectrogram(BaseProcessor):
     def __init__(self, n_fft=400, win_length=None, hop_length=None,

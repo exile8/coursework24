@@ -5,6 +5,34 @@ import torch
 from torch.utils.data import DataLoader
 
 
+def plot_learning_curves(train_losses, val_losses, train_accs=None, val_accs=None):
+    epochs = range(1, len(train_losses) + 1)
+
+    plt.figure(figsize=(12, 5))
+
+    plt.subplot(1, 2, 1)
+    plt.plot(epochs, train_losses, label="Train Loss")
+    if val_losses:
+        plt.plot(epochs, val_losses, label="Val Loss")
+    plt.xlabel("Epoch")
+    plt.ylabel("Loss")
+    plt.title("Loss Curve")
+    plt.legend()
+
+    plt.subplot(1, 2, 2)
+    if train_accs is not None:
+        plt.plot(epochs, train_accs, label="Train Acc")
+    if val_accs is not None:
+        plt.plot(epochs, val_accs, label="Val Acc")
+    plt.xlabel("Epoch")
+    plt.ylabel("Accuracy")
+    plt.title("Accuracy Curve")
+    plt.legend()
+
+    plt.tight_layout()
+    plt.show()
+
+
 class Trainer:
     """Class for handling model training, validation and testing
     Also supports fine-tuning
