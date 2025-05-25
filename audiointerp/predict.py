@@ -11,6 +11,65 @@ import gc
 from collections import defaultdict
 
 
+def make_exp_dirs(root, model_type, method_name):
+    csv_dir  = os.path.join(root, model_type, method_name, "csvs")
+    attr_dir = os.path.join(root, model_type, method_name, "attributions")
+    os.makedirs(csv_dir,  exist_ok=True)
+    os.makedirs(attr_dir, exist_ok=True)
+    return csv_dir, attr_dir
+
+
+def apply_mask(inputs, mask, silence_val=None):
+    if silence_val is None:
+        base = inputs.amin(dim=(-3, -2, -1), keepdim=True)
+    else:
+        base = torch.tensor(silence_val,
+                            dtype=inputs.dtype,
+                            device=inputs.device).view(1, 1, 1, 1)
+
+    masked = (inputs - base) * mask + base
+    unmasked = (inputs - base) * (1 - mask) + base
+    return masked, unmasked
+
+
+def _set_freq_ticks(ax, n_freqs, feature_type, fmin, fmax):
+    if "mel" in feature_type.lower():
+        freqs = librosa.mel_frequencies(n_mels=n_freqs, fmin=fmin, fmax=fmax)
+    else:
+        freqs = np.linspace(fmin, fmax, n_freqs)
+    idx = np.linspace(0, n_freqs - 1, 6, dtype=int)
+    labels = [f"{round(freqs[i])}" for i in idx]
+    ax.set_yticks(idx)
+    ax.set_yticklabels(labels)
+    ax.set_ylabel("Frequency (Hz)")
+
+
+def plot_mask_pair(original, masked, feature_type, fmin, fmax,
+                   save_path, suptitle=""):
+    if isinstance(original, torch.Tensor):
+        original = original.squeeze().detach().cpu().numpy()
+    if isinstance(masked, torch.Tensor):
+        masked = masked.squeeze().detach().cpu().numpy()
+
+    fig, axs = plt.subplots(1, 2, figsize=(10, 3), sharey=True)
+
+    all_min = min(original.min(), masked.min())
+    all_max = max(original.max(), masked.max())
+
+    for ax, mat, title in zip(axs, [original, masked], ["Original", "Masked"]):
+        im = ax.imshow(mat, aspect='auto', origin='lower', vmin=all_min, vmax=all_max)
+        ax.set_title(title)
+        ax.set_xlabel("Time steps")
+    fig.colorbar(im, ax=axs, fraction=0.046, label="Energy (dB)")
+
+    _set_freq_ticks(axs[0], original.shape[0], feature_type, fmin, fmax)
+    if suptitle:
+        fig.suptitle(suptitle, fontsize=10)
+    plt.tight_layout
+    fig.savefig(save_path, dpi=200)
+    plt.close(fig)
+
+
 class Predict:
 
     def __init__(self, model, feature_extractor, interp_method_cls, interp_method_kwargs, device):
@@ -23,95 +82,67 @@ class Predict:
         self.device = device
 
 
-    def predict(self, wav, wav_name, sr, save_dir="predictions"):
-        os.makedirs(save_dir, exist_ok=True)
+    def predict(self, wav, wav_name, sr, feature_type,
+                silence_val=None, fmin=50, fmax=14000,
+                save_root="predictions", model_type="default_model"):
+        
+        csv_dir, attr_dir = make_exp_dirs(save_root, model_type, wav_name)
 
         inputs, *stages = self.feature_extractor(wav.unsqueeze(0))
         inputs = inputs.to(self.device)
 
         _, masks = self.interpretator.interpret(inputs, ret_masks=True)
 
-        n_mels = inputs.shape[2]
-        mel_freqs = librosa.mel_frequencies(n_mels=n_mels, fmin=50, fmax=14000)
+        orig_wav = self.feature_extractor.inverse(inputs, *stages).squeeze(0)
+        torchaudio.save(os.path.join(csv_dir, f"{wav_name}_original.wav"),
+                        orig_wav.cpu(), sr)
 
-        for mask_type, mask in masks.items():
-            min_per_sample = inputs.amin(dim=(-3, -2, -1), keepdim=True)
-            unmasked_inputs = (inputs - min_per_sample) * (1 - masks) + min_per_sample
-            masked_inputs = (inputs - min_per_sample) * masks + min_per_sample
-
-            with torch.no_grad():
-                probs_original = F.softmax(self.model(inputs), dim=1)
-                probs_masked   = F.softmax(self.model(masked_inputs), dim=1)
-                probs_unmasked = F.softmax(self.model(unmasked_inputs), dim=1)
-
-            ff     = Metrics.compute_FF(probs=probs_original, probs_out=probs_unmasked)
-            ai     = Metrics.compute_AI(probs=probs_original, probs_in=probs_masked)
-            ad     = Metrics.compute_AD(probs=probs_original, probs_in=probs_masked)
-            ag     = Metrics.compute_AG(probs=probs_original, probs_in=probs_masked)
-            fidin  = Metrics.compute_FidIn(probs=probs_original, probs_in=probs_masked)
-            sps    = Metrics.compute_SPS(inputs, masks, probs_original, self.device)
-            comp   = Metrics.compute_COMP(inputs, masks, probs_original, self.device)
-
-            results = {
-                "FF":    ff.detach().cpu(),
-                "AI":    ai.detach().cpu(),
-                "AD":    ad.detach().cpu(),
-                "AG":    ag.detach().cpu(),
-                "FidIn": fidin.detach().cpu(),
-                "SPS":   torch.tensor(sps),
-                "COMP":  torch.tensor(comp)
-            }
+        for mask_type, m in masks.items():
+            masked, unmasked = apply_mask(inputs, m, silence_val)
 
             if len(stages) == 2:
-                stages_masked = (stages[0], stages[1] * masks)
-                stages_unmasked = (stages[0], stages[1] * (1 - masks))
+                full_db_masked, full_db_unmasked = apply_mask(stages[1], m, silence_val)
+                stages_masked = (stages[0], full_db_masked)
+                stages_unmasked = (stages[0], full_db_unmasked)
             else:
                 stages_masked = stages
                 stages_unmasked = stages
 
-            masked_wav = self.feature_extractor.inverse(masked_inputs, *stages_masked).squeeze(0)
-            unmasked_wav = self.feature_extractor.inverse(unmasked_inputs, *stages_unmasked).squeeze(0)
-            orig_wav = self.feature_extractor.inverse(inputs, *stages).squeeze(0)
+            masked_wav = self.feature_extractor.inverse(masked, *stages_masked).squeeze(0)
+            unmask_wav = self.feature_extractor.inverse(unmasked, *stages_unmasked).squeeze(0)
 
-            torchaudio.save(os.path.join(save_dir, f"{wav_name}_original.wav"),
-                            orig_wav.cpu(), sr)
-            torchaudio.save(os.path.join(save_dir, f"{wav_name}_masked.wav"),
+            torchaudio.save(os.path.join(csv_dir, f"{wav_name}_{mask_type}_masked.wav"),
                             masked_wav.cpu(), sr)
-            torchaudio.save(os.path.join(save_dir, f"{wav_name}_unmasked.wav"),
-                            unmasked_wav.cpu(), sr)
+            torchaudio.save(os.path.join(csv_dir, f"{wav_name}_{mask_type}_unmasked.wav"),
+                            unmask_wav.cpu(), sr)
 
+            plot_mask_pair(inputs[0], masked[0],
+                           feature_type, fmin, fmax,
+                           save_path=os.path.join(csv_dir,
+                                                  f"{wav_name}_{mask_type}_pair.png"),
+                           suptitle=mask_type)
 
+            with torch.no_grad():
+                probs_orig = F.softmax(self.model(inputs), dim=1)
+                probs_masked = F.softmax(self.model(masked), dim=1)
+                probs_unmasked = F.softmax(self.model(unmasked), dim=1)
 
-        n_mels = inputs.shape[2]
-        mel_freqs = librosa.mel_frequencies(n_mels=n_mels, fmin=50, fmax=14000)
+            results = dict(
+                FF = Metrics.compute_FF(probs_orig, probs_unmasked).cpu(),
+                AI = Metrics.compute_AI(probs_orig, probs_masked).cpu(),
+                AD = Metrics.compute_AD(probs_orig, probs_masked).cpu(),
+                AG = Metrics.compute_AG(probs_orig, probs_masked).cpu(),
+                FidIn = Metrics.compute_FidIn(probs_orig, probs_masked).cpu(),
+                SPS = torch.tensor(Metrics.compute_SPS(inputs, m,
+                                                         probs_orig, self.device)),
+                COMP = torch.tensor(Metrics.compute_COMP(inputs, m,
+                                                          probs_orig, self.device))
+            )
 
-        plt.figure(figsize=(6, 4))
-        original_spec = inputs[0].squeeze().detach().cpu().numpy()
-        plt.imshow(original_spec, aspect='auto', origin='lower')
-        plt.colorbar()
-        plt.xlabel("Time Steps")
-        plt.ylabel("Frequency (Hz)")
-        plt.title(f"Original Spectrogram for {wav_name}")
-
-        yticks = np.linspace(0, n_mels - 1, 6)
-        ylabels = [f"{int(mel_freqs[int(i)])} Hz" for i in yticks]
-        plt.yticks(yticks, ylabels)
-
-        plt.savefig(os.path.join(save_dir, f"{wav_name}_original_spec.png"))
-        plt.close()
-
-        plt.figure(figsize=(6, 4))
-        mask_for_plot = masked_inputs[0].squeeze().detach().cpu().numpy()
-        plt.imshow(mask_for_plot, aspect='auto', origin='lower')
-        plt.colorbar()
-        plt.xlabel("Time Steps")
-        plt.ylabel("Frequency (Hz)")
-        plt.title(f"Mask for {wav_name}")
-
-        plt.yticks(yticks, ylabels)
-
-        plt.savefig(os.path.join(save_dir, f"{wav_name}_mask.png"))
-        plt.close()
+            pd.DataFrame({k: v.view(-1).numpy() for k, v in results.items()}).to_csv(
+                os.path.join(csv_dir, f"{mask_type}.csv"), index=False)
+            torch.save(m.cpu(),
+                       os.path.join(attr_dir, f"{mask_type}.pt"))
 
         return results
 
@@ -138,34 +169,30 @@ class Predict:
             torch.save(attrs, fn)
         
 
-    def predict_set(self, dataloader, results_csv_name, save_dir="results", compute_first=True, start_from_sample=1):
-        results = defaultdict(lambda: defaultdict(list))
+    def predict_set(self, dataloader, results_csv_name, silence_val=None,
+                    save_dir="results", model_type="default_model",
+                    compute_first=True, start_from_sample=1):
 
-        if not os.path.isdir(save_dir):
-            os.makedirs(save_dir)
-
-        name, _ = os.path.splitext(results_csv_name)
-        path_to_attrs = os.path.join(save_dir, name)
-        
-        if not os.path.isdir(path_to_attrs):
-            os.makedirs(path_to_attrs)
+        method_name, _ = os.path.splitext(results_csv_name)
+        csv_dir, attr_dir = make_exp_dirs(save_dir, model_type, method_name)
 
         if compute_first:
-            self.compute_and_save_interpretations_set(dataloader, path_to_attrs, start_from_sample)
+            self.compute_and_save_interpretations_set(
+                dataloader, attr_dir, start_from_sample)
+
+        results = defaultdict(lambda: defaultdict(list))
 
         for iter_num, (wavs, y) in enumerate(dataloader, start=1):
-
-            fn = os.path.join(path_to_attrs, f'iter_{iter_num}.pt')
-            interpretations = torch.load(fn).to(self.device)
+            interp_file = os.path.join(attr_dir, f'iter_{iter_num}.pt')
+            interpretations = torch.load(interp_file).to(self.device)
 
             wavs = wavs.to(self.device)
             inputs, *_ = self.feature_extractor(wavs)
-            _, masks = self.interpretator.interpret(inputs, interpretations=interpretations, ret_masks=True)
-
+            _, masks = self.interpretator.interpret(inputs,
+                                                    interpretations=interpretations,
+                                                    ret_masks=True)
             for mask_type, m in masks.items():
-
-                unmasked_inputs = (inputs - inputs.amin(dim=(-3, -2, -1), keepdim=True)) * (1 - m) + inputs.amin(dim=(-3, -2, -1), keepdim=True)
-                masked_inputs = (inputs - inputs.amin(dim=(-3, -2, -1), keepdim=True)) * m + inputs.amin(dim=(-3, -2, -1), keepdim=True)
+                masked_inputs, unmasked_inputs = apply_mask(inputs, m, silence_val)
 
                 with torch.no_grad():
                     probs_original = F.softmax(self.model(inputs), dim=1)
@@ -179,12 +206,8 @@ class Predict:
                 ad = Metrics.compute_AD(probs=probs_original, probs_in=probs_masked)
                 ag = Metrics.compute_AG(probs=probs_original, probs_in=probs_masked)
                 fidin = Metrics.compute_FidIn(probs=probs_original, probs_in=probs_masked)
-                if "pos" not in mask_type:
-                    sps = Metrics.compute_SPS(inputs, interpretations, probs_original, self.device)
-                    comp = Metrics.compute_COMP(inputs, interpretations, probs_original, self.device)
-                else:
-                    sps = Metrics.compute_SPS(inputs, interpretations.clamp(min=0), probs_original, self.device)
-                    comp = Metrics.compute_COMP(inputs, interpretations.clamp(min=0), probs_original, self.device)
+                sps = Metrics.compute_SPS(inputs, m, probs_original, self.device)
+                comp = Metrics.compute_COMP(inputs, m, probs_original, self.device)
 
                 results[mask_type]["FF"].append(ff.cpu().view(-1))
                 results[mask_type]["AI"].append(ai.cpu().view(-1))
@@ -195,24 +218,13 @@ class Predict:
                 results[mask_type]["COMP"].append(torch.tensor(comp).cpu().view(-1))
                 results[mask_type]["is_correct"].append((preds.cpu() == y).view(-1))
 
-    
-        for mask_type in results:
-            for metric in results[mask_type]:
-                results[mask_type][metric] = torch.cat(results[mask_type][metric], dim=0)
 
-        frames = []
-        for mask_type, metrics in results.items():
-            df_tmp = pd.DataFrame({(mask_type, m): v for m, v in metrics.items()})
-            frames.append(df_tmp)
+        for mtype, metrics in results.items():
+            df = pd.DataFrame(
+                {metric: torch.cat(vals).numpy()
+                 for metric, vals in metrics.items()})
+            df.to_csv(os.path.join(csv_dir, f"{mtype}.csv"),
+                      index_label="sample")
 
-        results_df = pd.concat(frames, axis=1)
-        results_df.columns = pd.MultiIndex.from_tuples(results_df.columns)
-        results_df.index.name = "sample"
-
-        results_path = os.path.join(save_dir, results_csv_name)
-        if not os.path.isdir(save_dir):
-            os.makedirs(save_dir)
-        results_df.to_csv(results_path, index_label="sample")
-        print(f'Results saved as {results_path}')
-
-        return results_df
+        print(f"Все CSV-файлы сохранены в {csv_dir}")
+        return {mtype: list(mdict.keys()) for mtype, mdict in results.items()}

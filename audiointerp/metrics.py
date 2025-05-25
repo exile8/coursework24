@@ -4,6 +4,10 @@ import quantus
 class Metrics:
 
     @staticmethod
+    def _is_constant(t, rtol=1e-05, atol=1e-08):
+        return bool((t.max() - t.min()).abs() < atol + rtol * t.abs().max())
+
+    @staticmethod
     def compute_FF(probs, probs_out):
         pred_cl = torch.argmax(probs, dim=1, keepdim=True)
 
@@ -62,7 +66,7 @@ class Metrics:
 
         sps_metric = quantus.Sparseness(normalise=True, abs=True)
 
-        if torch.allclose(interpretations, torch.zeros_like(interpretations)):
+        if Metrics._is_constant(interpretations):
             return [0.0]
 
         sps = sps_metric(model=None, x_batch=samples.clone().detach().cpu().numpy(),
@@ -78,7 +82,7 @@ class Metrics:
 
         comp_metric = quantus.Complexity(normalise=True, abs=True)
 
-        if torch.allclose(interpretations, torch.zeros_like(interpretations)):
+        if Metrics._is_constant(interpretations):
             return [0.0]
             
         comp = comp_metric(model=None, x_batch=samples.clone().detach().cpu().numpy(),
