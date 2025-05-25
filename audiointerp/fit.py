@@ -6,6 +6,7 @@ from torch.utils.data import DataLoader
 
 
 def plot_learning_curves(train_losses, val_losses, train_accs=None, val_accs=None):
+    import matplotlib.pyplot as plt
     epochs = range(1, len(train_losses) + 1)
 
     plt.figure(figsize=(12, 5))

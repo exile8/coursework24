@@ -5,6 +5,10 @@ from .baseprocessor import BaseProcessor
 
 
 def plot_spec(spec,is_mel=True, sample_rate: int = 16000, fmin=0, fmax=8000, cmap="magma"):
+    import librosa
+    import matplotlib.pyplot as plt
+    import numpy as np
+
     if spec.ndim == 3:
         spec = spec[0, :, :]
     elif spec.ndim != 2:
