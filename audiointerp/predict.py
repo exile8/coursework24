@@ -29,54 +29,56 @@ class Predict:
         inputs, *stages = self.feature_extractor(wav.unsqueeze(0))
         inputs = inputs.to(self.device)
 
+        _, masks = self.interpretator.interpret(inputs, ret_masks=True)
 
-        out_dict = self.interpretator.interpret(inputs)
-        _, masks = out_dict.values()
+        n_mels = inputs.shape[2]
+        mel_freqs = librosa.mel_frequencies(n_mels=n_mels, fmin=50, fmax=14000)
 
-        min_per_sample = inputs.amin(dim=(1, 2, 3), keepdim=True)
-        unmasked_inputs = (inputs - min_per_sample) * (1 - masks) + min_per_sample
-        masked_inputs = (inputs - min_per_sample) * masks + min_per_sample
+        for mask_type, mask in masks.items():
+            min_per_sample = inputs.amin(dim=(-3, -2, -1), keepdim=True)
+            unmasked_inputs = (inputs - min_per_sample) * (1 - masks) + min_per_sample
+            masked_inputs = (inputs - min_per_sample) * masks + min_per_sample
 
-        with torch.no_grad():
-            probs_original = F.softmax(self.model(inputs), dim=1)
-            probs_masked   = F.softmax(self.model(masked_inputs), dim=1)
-            probs_unmasked = F.softmax(self.model(unmasked_inputs), dim=1)
+            with torch.no_grad():
+                probs_original = F.softmax(self.model(inputs), dim=1)
+                probs_masked   = F.softmax(self.model(masked_inputs), dim=1)
+                probs_unmasked = F.softmax(self.model(unmasked_inputs), dim=1)
 
-        ff     = Metrics.compute_FF(probs=probs_original, probs_out=probs_unmasked)
-        ai     = Metrics.compute_AI(probs=probs_original, probs_in=probs_masked)
-        ad     = Metrics.compute_AD(probs=probs_original, probs_in=probs_masked)
-        ag     = Metrics.compute_AG(probs=probs_original, probs_in=probs_masked)
-        fidin  = Metrics.compute_FidIn(probs=probs_original, probs_in=probs_masked)
-        sps    = Metrics.compute_SPS(inputs, masks, probs_original, self.device)
-        comp   = Metrics.compute_COMP(inputs, masks, probs_original, self.device)
+            ff     = Metrics.compute_FF(probs=probs_original, probs_out=probs_unmasked)
+            ai     = Metrics.compute_AI(probs=probs_original, probs_in=probs_masked)
+            ad     = Metrics.compute_AD(probs=probs_original, probs_in=probs_masked)
+            ag     = Metrics.compute_AG(probs=probs_original, probs_in=probs_masked)
+            fidin  = Metrics.compute_FidIn(probs=probs_original, probs_in=probs_masked)
+            sps    = Metrics.compute_SPS(inputs, masks, probs_original, self.device)
+            comp   = Metrics.compute_COMP(inputs, masks, probs_original, self.device)
 
-        results = {
-            "FF":    ff.detach().cpu(),
-            "AI":    ai.detach().cpu(),
-            "AD":    ad.detach().cpu(),
-            "AG":    ag.detach().cpu(),
-            "FidIn": fidin.detach().cpu(),
-            "SPS":   torch.tensor(sps),
-            "COMP":  torch.tensor(comp)
-        }
+            results = {
+                "FF":    ff.detach().cpu(),
+                "AI":    ai.detach().cpu(),
+                "AD":    ad.detach().cpu(),
+                "AG":    ag.detach().cpu(),
+                "FidIn": fidin.detach().cpu(),
+                "SPS":   torch.tensor(sps),
+                "COMP":  torch.tensor(comp)
+            }
 
-        if len(stages) == 2:
-            stages_masked = (stages[0], stages[1] * masks)
-            stages_unmasked = (stages[0], stages[1] * (1 - masks))
-        else:
-            stages_masked = stages
-            stages_unmasked = stages
+            if len(stages) == 2:
+                stages_masked = (stages[0], stages[1] * masks)
+                stages_unmasked = (stages[0], stages[1] * (1 - masks))
+            else:
+                stages_masked = stages
+                stages_unmasked = stages
 
-        masked_wav = self.feature_extractor.inverse(masked_inputs, *stages_masked).squeeze(0)
-        unmasked_wav = self.feature_extractor.inverse(unmasked_inputs, *stages_unmasked).squeeze(0)
-        orig_wav = self.feature_extractor.inverse(inputs, *stages).squeeze(0)
+            masked_wav = self.feature_extractor.inverse(masked_inputs, *stages_masked).squeeze(0)
+            unmasked_wav = self.feature_extractor.inverse(unmasked_inputs, *stages_unmasked).squeeze(0)
+            orig_wav = self.feature_extractor.inverse(inputs, *stages).squeeze(0)
 
-        torchaudio.save(os.path.join(save_dir, f"{wav_name}_original.wav"),
-                        orig_wav.cpu(), sr)
-        torchaudio.save(os.path.join(save_dir, f"{wav_name}_masked.wav"),
-                        masked_wav.cpu(), sr)
-        torchaudio.save(os.path.join(save_dir, f"{wav_name}_unmasked.wav"),
-                        unmasked_wav.cpu(), sr)
+            torchaudio.save(os.path.join(save_dir, f"{wav_name}_original.wav"),
+                            orig_wav.cpu(), sr)
+            torchaudio.save(os.path.join(save_dir, f"{wav_name}_masked.wav"),
+                            masked_wav.cpu(), sr)
+            torchaudio.save(os.path.join(save_dir, f"{wav_name}_unmasked.wav"),
+                            unmasked_wav.cpu(), sr)
 
 
 
@@ -177,8 +179,12 @@ class Predict:
                 ad = Metrics.compute_AD(probs=probs_original, probs_in=probs_masked)
                 ag = Metrics.compute_AG(probs=probs_original, probs_in=probs_masked)
                 fidin = Metrics.compute_FidIn(probs=probs_original, probs_in=probs_masked)
-                sps = Metrics.compute_SPS(inputs, interpretations, probs_original, self.device)
-                comp = Metrics.compute_COMP(inputs, interpretations, probs_original, self.device)
+                if "pos" not in mask_type:
+                    sps = Metrics.compute_SPS(inputs, interpretations, probs_original, self.device)
+                    comp = Metrics.compute_COMP(inputs, interpretations, probs_original, self.device)
+                else:
+                    sps = Metrics.compute_SPS(inputs, interpretations.clamp(min=0), probs_original, self.device)
+                    comp = Metrics.compute_COMP(inputs, interpretations.clamp(min=0), probs_original, self.device)
 
                 results[mask_type]["FF"].append(ff.cpu().view(-1))
                 results[mask_type]["AI"].append(ai.cpu().view(-1))
