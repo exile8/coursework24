@@ -22,11 +22,5 @@ class SHAPInterpreter(BaseInterpreter):
 
         attributions = torch.from_numpy(shap_values[0][..., 0]).to(device=self.device, dtype=torch.float32)
 
-        del shap_values
-        del inputs
-        del logits
-        gc.collect()
-        torch.cuda.empty_cache()
-
         return attributions
 

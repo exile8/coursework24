@@ -36,11 +36,6 @@ class LIMEInterpreter(BaseInterpreter):
                 probs = torch.softmax(output, dim=1)
 
             probs_np = probs.detach().cpu()
-            del probs
-            del input_specs
-            del output
-            gc.collect()
-            torch.cuda.empty_cache()
             
             return probs_np
 
