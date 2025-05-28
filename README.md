@@ -15,8 +15,13 @@ The `samples` directory contains 5 audio files sourced from the ESC-50 dataset [
 
 Please refer to the [ESC-50 official repository](https://github.com/karolpiczak/ESC-50) for more details about the dataset.
 
+The `noises` directory contains 5sec fragments of clips from Freesound.org ([3], [4], [5]).
+
 Model: Cnn14 [2].
 
 ## References
 [1] K. J. Piczak. **ESC: Dataset for Environmental Sound Classification**. *Proceedings of the 23rd Annual ACM Conference on Multimedia*, Brisbane, Australia, 2015. [DOI: http://dx.doi.org/10.1145/2733373.2806390]
 [2] Qiuqiang Kong, Yin Cao, Turab Iqbal, Yuxuan Wang, Wenwu Wang, and Mark D. Plumbley. "Panns: Large-scale pretrained audio neural networks for audio pattern recognition." IEEE/ACM Transactions on Audio, Speech, and Language Processing 28 (2020): 2880-2894.
+[3] White noise by theundecided -- https://freesound.org/s/165058/ -- License: Creative Commons 0
+[4] Room Tone Office Industrial Ambience 01 by mzui -- https://freesound.org/s/203297/ -- License: Creative Commons 0
+[5] Horse_Whinny.wav by foxen10 -- https://freesound.org/s/149024/ -- License: Creative Commons 0
