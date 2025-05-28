@@ -13,9 +13,9 @@ class SHAPInterpreter(BaseInterpreter):
     def compute_interpretation(self, inputs):
         inputs = inputs.to(self.device)
 
-        with torch.no_grad():
-            logits = self.model(inputs)
-        predicted_class = logits.argmax(dim=1).cpu().numpy()
+        #with torch.no_grad():
+        #    logits = self.model(inputs)
+        #predicted_class = logits.argmax(dim=1).cpu().numpy()
 
         shap_values = self.explainer.shap_values(inputs, ranked_outputs=1, output_rank_order='max', check_additivity=False)
         print("Done extracting shap values")
