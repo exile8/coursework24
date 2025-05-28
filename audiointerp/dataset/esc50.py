@@ -57,13 +57,21 @@ class ESC50dataset(BaseAudioDataset):
 class ESC50contaminated(ESC50dataset):
 
     def __init__(self, root_dir, path_to_contaminating_audio,
-                 folds=None, sr=44100, duration=5.0,
+                 folds=None, sr=44100, duration=5.0, alpha=1.0,
                  normalize=None, feature_extractor=None,
                  time_augs=None, feature_augs=None):
 
         self.path_to_contaminating_audio = path_to_contaminating_audio
+        self.alpha = alpha
 
         super().__init__(root_dir, folds, sr, duration, normalize, feature_extractor, time_augs, feature_augs)
+
+    def _rms_normalize(self, wav):
+        rms = torch.sqrt(torch.mean(wav.pow(2)))
+        if rms > 0.:
+            return wav / rms
+        else:
+            return wav
 
 
     def _load_audio(self, path_to_audio):
@@ -77,12 +85,6 @@ class ESC50contaminated(ESC50dataset):
         if original_sr != self.sr:
             audio = F.resample(audio, original_sr, self.sr)
 
-        # normalization
-        if self.normalize is not None:
-            abs_max = audio.abs().max()
-            if abs_max != 0.:
-                audio /= abs_max
-
         return audio
 
 
@@ -93,7 +95,13 @@ class ESC50contaminated(ESC50dataset):
         audio_original = self._load_audio(audio_path)
         audio_contamination = self._load_audio(self.path_to_contaminating_audio)
 
-        audio = 0.8 * audio_original + 0.2 * audio_contamination
+        audio_original = self._fix_length(audio_original)
+        audio_contamination = self._fix_length(audio_contamination)
+
+        audio_original = self._rms_normalize(audio_original)
+        audio_contamination = self._rms_normalize(audio_contamination)
+
+        audio = self.alpha * audio_original + (1 - self.alpha) * audio_contamination
         if self.normalize is not None:
             abs_max = audio.abs().max()
             if abs_max != 0.:
