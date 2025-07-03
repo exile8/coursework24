@@ -46,7 +46,11 @@ def _db_to_linear(spec_db, stype):
     else:
         raise ValueError(f"Unknown stype: {stype}")
 
-        
+
+class _LogLosslessInvMixin:
+    def __init__(self, return_pre_db=False):
+        self.return_pre_db = return_pre_db
+
 
 class STFTSpectrogram(BaseProcessor):
     def __init__(self, n_fft=400, win_length=None, hop_length=None,
@@ -114,13 +118,13 @@ class STFTSpectrogram(BaseProcessor):
 
         
 
-class LogSTFTSpectrogram(STFTSpectrogram):
+class LogSTFTSpectrogram(STFTSpectrogram, _LogLosslessInvMixin):
     def __init__(self, n_fft=400, win_length=None, hop_length=None,
                  pad=0, window_fn=torch.hann_window, power=2.,
                  wkwargs=None, center=True, pad_mode='reflect',
-                 top_db=None, return_phase=True, return_full_db=True):
-        super().__init__(
-            n_fft=n_fft, win_length=win_length, hop_length=hop_length,
+                 top_db=None, return_phase=True, return_full_db=True, return_pre_db=False):
+        STFTSpectrogram.__init__(
+            self, n_fft=n_fft, win_length=win_length, hop_length=hop_length,
             pad=pad, window_fn=window_fn, power=power, wkwargs=wkwargs,
             center=center, pad_mode=pad_mode, return_phase=return_phase
         )
@@ -141,6 +145,8 @@ class LogSTFTSpectrogram(STFTSpectrogram):
             stype=self.stype, top_db=None
         )
 
+        _LogLosslessInvMixin.__init__(self, return_pre_db=return_pre_db)
+
     def forward(self, wav):
         
         if self.return_phase:
@@ -150,25 +156,26 @@ class LogSTFTSpectrogram(STFTSpectrogram):
 
         spec_db = self.amp_to_db(spec)
 
+        out = [spec_db]
+
+        if self.return_phase:
+            out.append(phase)
         if self.return_full_db:
             full_db = self.amp_to_db_full(spec)
-            if self.return_phase:
-                return spec_db, phase, full_db
-            else:
-                return spec_db, full_db
+            out.append(full_db)
+        if self.return_pre_db:
+            out.append(spec)
+
+        return tuple(out) if len(out) > 1 else out[0]
+
+    def inverse(self, features, phase=None, full_db=None, pre_db=None):
+        if pre_db is not None:
+            linear_spec = pre_db
+        elif full_db is not None:
+            linear_spec = _db_to_linear(full_db, self.stype)
         else:
-            if self.return_phase:
-                return spec_db, phase
-            else:
-                return spec_db
-
-    def inverse(self, features, phase=None, full_db=None):
-
-        if full_db is None:
             print("Warning: non-clipped db values are not provided. The inversion will be lossy.")
             linear_spec = _db_to_linear(features, self.stype)
-        else:
-            linear_spec = _db_to_linear(full_db, self.stype)
 
         wav = super().inverse(linear_spec, phase=phase)
 
@@ -225,14 +232,14 @@ class MelSTFTSpectrogram(STFTSpectrogram):
         return wav
 
 
-class LogMelSTFTSpectrogram(MelSTFTSpectrogram):
+class LogMelSTFTSpectrogram(MelSTFTSpectrogram, _LogLosslessInvMixin):
     def __init__(self, n_fft=400, win_length=None, hop_length=None,
                  pad=0, window_fn=torch.hann_window, power=2.,
                  wkwargs=None, center=True, pad_mode='reflect',
                  sample_rate=16000, n_mels=80, f_min=0.0, f_max=None,
-                 top_db=None, return_full_db=True, return_phase=True):
-        super().__init__(
-            n_fft=n_fft, win_length=win_length, hop_length=hop_length,
+                 top_db=None, return_full_db=True, return_phase=True, return_pre_db=False):
+        MelSTFTSpectrogram.__init__(
+            self, n_fft=n_fft, win_length=win_length, hop_length=hop_length,
             pad=pad, window_fn=window_fn, power=power, wkwargs=wkwargs,
             sample_rate=sample_rate, f_min=f_min, f_max=f_max, n_mels=n_mels,
             center=center, pad_mode=pad_mode, return_phase=return_phase
@@ -254,6 +261,8 @@ class LogMelSTFTSpectrogram(MelSTFTSpectrogram):
             stype=self.stype, top_db=None
         )
 
+        _LogLosslessInvMixin.__init__(self, return_pre_db=return_pre_db)
+
     def forward(self, wav):
         if self.return_phase:
             mel_spec, phase = super().forward(wav)
@@ -262,24 +271,26 @@ class LogMelSTFTSpectrogram(MelSTFTSpectrogram):
 
         mel_spec_db = self.amp_to_db(mel_spec)
 
+        out = [mel_spec_db]
+
+        if self.return_phase:
+            out.append(phase)
         if self.return_full_db:
             full_db = self.amp_to_db_full(mel_spec)
-            if self.return_phase:
-                return mel_spec_db, phase, full_db
-            else:
-                return mel_spec_db, full_db
-        else:
-            if self.return_phase:
-                return mel_spec_db, phase
-            else:
-                return mel_spec_db
+            out.append(full_db)
+        if self.return_pre_db:
+            out.append(mel_spec)
 
-    def inverse(self, features, phase=None, full_db=None):
-        if full_db is None:
+        return tuple(out) if len(out) > 1 else out[0]
+
+    def inverse(self, features, phase=None, full_db=None, pre_db=None):
+        if pre_db is not None:
+            linear_mel_spec = pre_db
+        elif full_db is not None:
+            linear_mel_spec = _db_to_linear(full_db, self.stype)
+        else:
             print("Warning: non-clipped db values are not provided. The inversion will be lossy.")
             linear_mel_spec = _db_to_linear(features, self.stype)
-        else:
-            linear_mel_spec = _db_to_linear(full_db, self.stype)
 
         wav = super().inverse(linear_mel_spec, phase=phase)
 
