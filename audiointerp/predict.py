@@ -57,7 +57,7 @@ def plot_mask_pair(original, masked, feature_type, fmin, fmax,
     all_max = max(original.max(), masked.max())
 
     for ax, mat, title in zip(axs, [original, masked], ["Original", "Masked"]):
-        im = ax.imshow(mat, aspect='auto', origin='lower', vmin=all_min, vmax=all_max)
+        im = ax.imshow(mat, aspect='auto', origin='lower', vmin=all_min, vmax=all_max, cmap="magma")
         ax.set_title(title)
         ax.set_xlabel("Time steps")
     fig.colorbar(im, ax=axs, fraction=0.046, label="Energy (dB)")
@@ -87,33 +87,57 @@ class Predict:
         
         csv_dir, attr_dir = make_exp_dirs(save_root, model_type, wav_name)
 
-        inputs, *stages = self.feature_extractor(wav.unsqueeze(0))
-        inputs = inputs.to(self.device)
+        inputs, *stages = self.feature_extractor(wav.unsqueeze(0).to(self.device))
+        # inputs = inputs.to(self.device)
+
+        phase = full_db = pre_db = None
+        idx = 0
+        if getattr(self.feature_extractor, "return_phase", False):
+            phase = stages[idx]
+            idx += 1
+        if getattr(self.feature_extractor, "return_full_db", False):
+            full_db = stages[idx]
+            idx += 1
+        if getattr(self.feature_extractor, "return_pre_db", False):
+            pre_db = stages[idx]
+            idx += 1
 
         _, masks = self.interpretator.interpret(inputs, ret_masks=True)
 
-        orig_wav = self.feature_extractor.inverse(inputs, *stages).squeeze(0)
+        orig_wav = self.feature_extractor.inverse(inputs, phase=phase, full_db=full_db, pre_db=pre_db).squeeze(0)
         torchaudio.save(os.path.join(csv_dir, f"{wav_name}_original.wav"),
                         orig_wav.cpu(), sr)
 
         for mask_type, m in masks.items():
             masked, unmasked = apply_mask(inputs, m, silence_val)
-
-            if len(stages) == 2:
-                full_db_masked, full_db_unmasked = apply_mask(stages[1], m, silence_val)
-                stages_masked = (stages[0], full_db_masked)
-                stages_unmasked = (stages[0], full_db_unmasked)
+            if full_db is not None:
+                full_db_masked, full_db_unmasked = apply_mask(full_db, m, silence_val)
             else:
-                stages_masked = stages
-                stages_unmasked = stages
+                full_db_masked = full_db_unmasked = None
 
-            masked_wav = self.feature_extractor.inverse(masked, *stages_masked).squeeze(0)
-            unmask_wav = self.feature_extractor.inverse(unmasked, *stages_unmasked).squeeze(0)
+            if pre_db is not None:
+                pre_db_masked, pre_db_unmasked = apply_mask(pre_db, m, 0.)
+            else:
+                pre_db_masked = pre_db_unmasked = None
+
+            masked_wav = self.feature_extractor.inverse(
+                masked,
+                phase=phase,
+                full_db=full_db_masked,
+                pre_db=pre_db_masked
+            ).squeeze(0)
+
+            unmasked_wav = self.feature_extractor.inverse(
+                unmasked,
+                phase=phase,
+                full_db=full_db_unmasked,
+                pre_db=pre_db_unmasked
+            ).squeeze(0)
 
             torchaudio.save(os.path.join(csv_dir, f"{wav_name}_{mask_type}_masked.wav"),
                             masked_wav.cpu(), sr)
             torchaudio.save(os.path.join(csv_dir, f"{wav_name}_{mask_type}_unmasked.wav"),
-                            unmask_wav.cpu(), sr)
+                            unmasked_wav.cpu(), sr)
 
             plot_mask_pair(inputs[0], masked[0],
                            feature_type, fmin, fmax,
